@@ -164,7 +164,7 @@ class NetworkNode:
         return self.fwd_table[dst]
 
     # Choose an interface for the packet to exit from.
-    def choose_exit_interface(self, dst):
+    def choose_exit_interface(self, dst, high_priority):
         global all_nodes
         ideal_iface = self.get_ideal_interface(dst)
         if ideal_iface == None:
@@ -176,20 +176,21 @@ class NetworkNode:
         iface_candidates.append(ideal_iface)
         iface_costs.append(self.fwd_distances[dst])
 
-        # Load balance if necessary.
-        for i, link in enumerate(self.links):
-            if i == ideal_iface:
-                continue
-            
-            neighbor = all_nodes[link]
-            # if the neighbor node has a path to the destination that doesn't just pass back through us,
-            # it's probably a good candidate for load balancing.
-            # This is just a prototype, real SDNs have more complex forwarding tables that can handle multiple candidates.
-            neighbor_ideal = neighbor.get_ideal_interface(dst)
-            if neighbor_ideal != None and neighbor.links[neighbor_ideal] != self.index:
-                iface_candidates.append(i)
-                # add 1 here to represent the additional hop to this neighbor.
-                iface_costs.append(1 + neighbor.fwd_distances[dst])
+        # Load balance if we're allowed.
+        if not high_priority:
+            for i, link in enumerate(self.links):
+                if i == ideal_iface:
+                    continue
+                
+                neighbor = all_nodes[link]
+                # if the neighbor node has a path to the destination that doesn't just pass back through us,
+                # it's probably a good candidate for load balancing.
+                # This is just a prototype, real SDNs have more complex forwarding tables that can handle multiple candidates.
+                neighbor_ideal = neighbor.get_ideal_interface(dst)
+                if neighbor_ideal != None and neighbor.links[neighbor_ideal] != self.index:
+                    iface_candidates.append(i)
+                    # add 1 here to represent the additional hop to this neighbor.
+                    iface_costs.append(1 + neighbor.fwd_distances[dst])
 
         # ideally this would evaluate cost aswell, but right now it's just hot potato
         link_weights = [-1] * len(self.links)
@@ -316,11 +317,11 @@ def create_test_network():
 
     update_network_topology()
 
-def simulate_packet(src, dst):
+def simulate_packet(src, dst, high_priority):
     print(f'Routing packet from {args[1]} -> {args[2]}')
     while src != dst:
         print(f'{all_nodes[src].name}:')
-        link_weights = all_nodes[src].choose_exit_interface(dst)
+        link_weights = all_nodes[src].choose_exit_interface(dst, high_priority)
         if link_weights == None:
             print(f'No path to destination!')
             break
@@ -413,8 +414,16 @@ def handle_command(args):
         src = get_node_index(args[1])
         dst = get_node_index(args[2])
         if src != -1 and dst != -1:
-            simulate_packet(src, dst)
+            simulate_packet(src, dst, False)
+        return
 
+    # simulate_high_priority name0 name1
+    # simulate a high-priority packet between two nodes (takes the shortest route no matter what, no load balancing allowed).
+    if args[0] == 'simulate_high_priority':
+        src = get_node_index(args[1])
+        dst = get_node_index(args[2])
+        if src != -1 and dst != -1:
+            simulate_packet(src, dst, True)
         return
 
 
