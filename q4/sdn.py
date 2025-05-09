@@ -22,6 +22,26 @@ def find_link_stats(a, b):
     if (b, a) in link_stats: return link_stats[(b, a)]
     return None
 
+link_stats_patches = []
+def draw_link_stats():
+    global link_stats_patches
+    for i, patch in enumerate(link_stats_patches):
+        patch.remove()
+
+    link_stats_patches = []
+
+    for stats in link_stats.values():
+        src = all_nodes[stats.a]
+        dst = all_nodes[stats.b]
+        center_x = (src.x + dst.x) / 2.0
+        center_y = (src.y + dst.y) / 2.0
+        circle = Circle((center_x, center_y), 0.25, color='white', zorder=3)
+        text = ax.text(center_x, center_y, stats.times_used, ha='center', va='center', color='black', fontsize=12, zorder=4)
+        ax.add_patch(circle)
+        link_stats_patches.append(circle)
+        link_stats_patches.append(text)
+
+
 # simple link statistics tracker, used for routing decisions.
 # i added this a little later on in the project,
 # so the node code mostly still uses indices of other nodes to handle links.
@@ -50,7 +70,6 @@ class NetworkNode:
         self.text = ax.text(x, y, self.name, ha='center', va='center', color='black', fontsize=12, zorder=2)
 
         self.link_patches = []
-        self.link_stats = []
 
     def destroy(self):
         self.node_icon.remove()
@@ -59,8 +78,6 @@ class NetworkNode:
         for i, patch in enumerate(self.link_patches):
             patch.remove()
 
-        for i, patch in enumerate(self.link_stats):
-            patch.remove()   
 
     # this will draw duplicate links (A -> B and B -> A on top of eachother), but that's ok since this is only a prototype.
     def redraw_links(self):
@@ -74,19 +91,6 @@ class NetworkNode:
             # print(f'drawing link {self.index} ({self.x}, {self.y}) -> {link} ({dest.x}, {dest.y})')
             line = ax.plot([self.x, dest.x], [self.y, dest.y], color='black', zorder=0)
             self.link_patches.append(line[0])
-
-    def redraw_stats(self):
-        for i, patch in enumerate(self.link_stats):
-            patch.remove()
-
-        self.link_stats = []
-
-        for i, link in enumerate(self.links):
-            dest = all_nodes[link]
-            center_x = (self.x + dest.x) / 2.0
-            center_y = (self.y + dest.y) / 2.0
-            # text = ax.text(center_x, center_y, self.name, ha='left', va='bottom', color='black', fontsize=12, zorder=2)
-            # self.link_stats.append(text)
 
     def get_path_to_node(self, prev, target_node):
         path = []
@@ -191,6 +195,7 @@ class NetworkNode:
         link_weights = [-1] * len(self.links)
 
         # -1 signifies this link is not a candidate.
+        # If a link is used 4 times, it'll start to balance to other links.
         for i, iface in enumerate(iface_candidates):
             stats = find_link_stats(self.index, self.links[iface])
             link_weights[iface] = stats.times_used * 0.25 + iface_costs[i]
@@ -225,6 +230,7 @@ def update_network_topology():
         all_nodes[node_index].calc_shortest_paths()
         all_nodes[node_index].redraw_links()
 
+    draw_link_stats()
     plt.draw()
 
 def get_node_index(name):
@@ -405,6 +411,11 @@ def handle_command(args):
                 src = new_src
                 print(f'\tSending packet through interface {best_iface} ({all_nodes[src].name})...')
             print('Finished!')
+
+            # Redraw the link stats.
+            draw_link_stats()
+            plt.draw()
+
         return
 
 while True:
