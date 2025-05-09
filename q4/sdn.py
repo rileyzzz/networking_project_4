@@ -2,6 +2,10 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
+
+# here's the hash of my student ID with the signature (898907983NeoDDaBRgX5a9)
+# 859f931871d5fc4dc6b44361c8574947071714045d301d703ffd3b13af59b770
+
 # create visualization graph
 fig, ax = plt.subplots()
 ax.set_xlim(-5, 5)
