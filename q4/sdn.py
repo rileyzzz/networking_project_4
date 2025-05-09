@@ -14,6 +14,25 @@ all_nodes = []
 # maximum distance constant for dijkstra's
 MAX_DIST = 1000
 
+# this is 
+link_stats = {}
+
+def find_link_stats(a, b):
+    if (a, b) in link_stats: return link_stats[(a, b)]
+    if (b, a) in link_stats: return link_stats[(b, a)]
+    return None
+
+# simple link statistics tracker, used for routing decisions.
+# i added this a little later on in the project,
+# so the node code mostly still uses indices of other nodes to handle links.
+class NetworkLink:
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+        self.times_used = 0
+
+
+# a node in the network.
 class NetworkNode:
     def __init__(self, name, x, y):
         self.name = name
@@ -24,6 +43,7 @@ class NetworkNode:
         self.links = []
 
         self.fwd_table = []
+        self.fwd_distances = []
 
         self.node_icon = Circle((x, y), 0.75, color='blue', zorder=1)
         ax.add_patch(self.node_icon)
@@ -112,7 +132,7 @@ class NetworkNode:
             for i, neighbor_index in enumerate(neighbors):
                 if not visited[neighbor_index]:
                     # calc dist from current node.
-                    # for this simple implementation, all nodes are spaced 1 unit apart.
+                    # for this simple implementation, all nodes are spaced 1 unit apart (despite what the graph UI shows).
                     test_dist = shortest_dist[cur] + 1
 
                     # if this distance is smaller than the one we already know, it's a better path.
@@ -124,6 +144,7 @@ class NetworkNode:
         # Now that we have the shortest distance to each node,
         # update the forwarding table.
         self.fwd_table = [None] * len(all_nodes)
+        self.fwd_distances = shortest_dist
         for node_index in range(len(all_nodes)):
             if node_index == self.index:
                 continue
@@ -133,6 +154,49 @@ class NetworkNode:
             if path and len(path) != 0:
                 self.fwd_table[node_index] = self.links.index(path[0])
                 # self.fwd_table[node_index] = path
+
+
+    def get_ideal_interface(self, dst):
+        return self.fwd_table[dst]
+
+    # Choose an interface for the packet to exit from.
+    def choose_exit_interface(self, dst):
+        global all_nodes
+        ideal_iface = self.get_ideal_interface(dst)
+        if ideal_iface == None:
+            return None
+        
+        iface_candidates = []
+        iface_costs = []
+
+        iface_candidates.append(ideal_iface)
+        iface_costs.append(self.fwd_distances[dst])
+
+        # Load balance if necessary.
+        for i, link in enumerate(self.links):
+            if i == ideal_iface:
+                continue
+            
+            neighbor = all_nodes[link]
+            # if the neighbor node has a path to the destination that doesn't just pass back through us,
+            # it's probably a good candidate for load balancing.
+            # This is just a prototype, real SDNs have more complex forwarding tables that can handle multiple candidates.
+            neighbor_ideal = neighbor.get_ideal_interface(dst)
+            if neighbor_ideal != None and neighbor.links[neighbor_ideal] != self.index:
+                iface_candidates.append(i)
+                # add 1 here to represent the additional hop to this neighbor.
+                iface_costs.append(1 + neighbor.fwd_distances[dst])
+
+        # ideally this would evaluate cost aswell, but right now it's just hot potato
+        link_weights = [-1] * len(self.links)
+
+        # -1 signifies this link is not a candidate.
+        for i, iface in enumerate(iface_candidates):
+            stats = find_link_stats(self.index, self.links[iface])
+            link_weights[iface] = stats.times_used * 0.25 + iface_costs[i]
+        
+        return link_weights
+
 
 
     def print_topology(self):
@@ -207,15 +271,20 @@ def remove_node(name):
         for i in range(len(node.links)):
             node.links[i] = old_nodes[node.links[i]].index
 
-
 def link_nodes(a, b):
+    if b in all_nodes[a].links or a in all_nodes[b].links:
+        return
+    
     all_nodes[a].links.append(b)
     all_nodes[b].links.append(a)
+    link_stats[(a, b)] = NetworkLink(a, b)
 
 
 def unlink_nodes(a, b):
     all_nodes[a].links.remove(b)
     all_nodes[b].links.remove(a)
+    if (a, b) in link_stats: del link_stats[(a, b)]
+    if (b, a) in link_stats: del link_stats[(b, a)]
 
 
 def create_test_network():
@@ -223,10 +292,21 @@ def create_test_network():
     add_node("R1", 2, -2)
     add_node("R2", -2, 2)
     add_node("R3", 3, 0)
+    add_node("R4", 3, 3)
+    add_node("R5", 0, 0.5)
+    add_node("R6", 0, 3)
 
     link_nodes(0, 1)
     link_nodes(0, 2)
     link_nodes(1, 3)
+
+    # make some alternate routes for R2 <-> R3 to test load balancing
+    link_nodes(2, 6)
+    link_nodes(6, 4)
+    link_nodes(4, 3)
+
+    link_nodes(2, 5)
+    link_nodes(5, 3)
 
     update_network_topology()
 
@@ -282,6 +362,51 @@ def handle_command(args):
             all_nodes[node].print_topology()
         return
     
+    # simulate name0 name1
+    # simulate a packet flowing between two nodes.
+    if args[0] == 'simulate':
+        src = get_node_index(args[1])
+        dst = get_node_index(args[2])
+        if src != -1 and dst != -1:
+            print(f'Routing packet from {args[1]} -> {args[2]}')
+            while src != dst:
+                print(f'{all_nodes[src].name}:')
+                link_weights = all_nodes[src].choose_exit_interface(dst)
+                if link_weights == None:
+                    print(f'No path to destination!')
+                    break
+                
+                # Pick the smallest weighted link that isn't 0 in order to load balance.
+                smallest = MAX_DIST
+                best_iface = -1
+                print('\tLink weights (choosing smallest):')
+                for iface, weight in enumerate(link_weights):
+                    if weight == -1:
+                        continue
+            
+                    iface_dest = all_nodes[src].links[iface]
+                    print(f'\t\t{iface} ({all_nodes[iface_dest].name}): {weight}')
+
+                    if weight < smallest:
+                        smallest = weight
+                        best_iface = iface
+
+                if best_iface == -1:
+                    print('No link found!')
+                    break
+                
+                new_src = all_nodes[src].links[best_iface]
+
+                # Update the link stats.
+                stats = find_link_stats(src, new_src)
+                if stats != None:
+                    stats.times_used += 1
+
+                src = new_src
+                print(f'\tSending packet through interface {best_iface} ({all_nodes[src].name})...')
+            print('Finished!')
+        return
+
 while True:
     cmd = input('> ')
     if len(cmd) == 0:
