@@ -316,10 +316,49 @@ def create_test_network():
 
     update_network_topology()
 
+def simulate_packet(src, dst):
+    print(f'Routing packet from {args[1]} -> {args[2]}')
+    while src != dst:
+        print(f'{all_nodes[src].name}:')
+        link_weights = all_nodes[src].choose_exit_interface(dst)
+        if link_weights == None:
+            print(f'No path to destination!')
+            break
+        
+        # Pick the smallest weighted link that isn't 0 in order to load balance.
+        smallest = MAX_DIST
+        best_iface = -1
+        print('\tLink weights (choosing smallest):')
+        for iface, weight in enumerate(link_weights):
+            if weight == -1:
+                continue
+    
+            iface_dest = all_nodes[src].links[iface]
+            print(f'\t\t{iface} ({all_nodes[iface_dest].name}): {weight}')
 
-create_test_network()
+            if weight < smallest:
+                smallest = weight
+                best_iface = iface
 
-plt.show(block=False)
+        if best_iface == -1:
+            print('No link found!')
+            break
+        
+        new_src = all_nodes[src].links[best_iface]
+
+        # Update the link stats.
+        stats = find_link_stats(src, new_src)
+        if stats != None:
+            stats.times_used += 1
+
+        src = new_src
+        print(f'\tSending packet through interface {best_iface} ({all_nodes[src].name})...')
+    print('Finished!')
+
+    # Redraw the link stats.
+    draw_link_stats()
+    plt.draw()
+
 
 def handle_command(args):
     global all_nodes
@@ -374,49 +413,14 @@ def handle_command(args):
         src = get_node_index(args[1])
         dst = get_node_index(args[2])
         if src != -1 and dst != -1:
-            print(f'Routing packet from {args[1]} -> {args[2]}')
-            while src != dst:
-                print(f'{all_nodes[src].name}:')
-                link_weights = all_nodes[src].choose_exit_interface(dst)
-                if link_weights == None:
-                    print(f'No path to destination!')
-                    break
-                
-                # Pick the smallest weighted link that isn't 0 in order to load balance.
-                smallest = MAX_DIST
-                best_iface = -1
-                print('\tLink weights (choosing smallest):')
-                for iface, weight in enumerate(link_weights):
-                    if weight == -1:
-                        continue
-            
-                    iface_dest = all_nodes[src].links[iface]
-                    print(f'\t\t{iface} ({all_nodes[iface_dest].name}): {weight}')
-
-                    if weight < smallest:
-                        smallest = weight
-                        best_iface = iface
-
-                if best_iface == -1:
-                    print('No link found!')
-                    break
-                
-                new_src = all_nodes[src].links[best_iface]
-
-                # Update the link stats.
-                stats = find_link_stats(src, new_src)
-                if stats != None:
-                    stats.times_used += 1
-
-                src = new_src
-                print(f'\tSending packet through interface {best_iface} ({all_nodes[src].name})...')
-            print('Finished!')
-
-            # Redraw the link stats.
-            draw_link_stats()
-            plt.draw()
+            simulate_packet(src, dst)
 
         return
+
+
+# Run simulator
+create_test_network()
+plt.show(block=False)
 
 while True:
     cmd = input('> ')
@@ -430,10 +434,9 @@ while True:
     if args[0] == 'quit':
         break
 
-    handle_command(args)
-    # try:
-    #     handle_command(args)
-    # except Exception as e:
-    #     print(f'Error: {e}\n')
+    try:
+        handle_command(args)
+    except Exception as e:
+        print(f'Error: {e}\n')
 
 
