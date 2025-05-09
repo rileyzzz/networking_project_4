@@ -18,7 +18,6 @@ all_nodes = []
 # maximum distance constant for dijkstra's
 MAX_DIST = 1000
 
-# this is 
 link_stats = {}
 
 def find_link_stats(a, b):
