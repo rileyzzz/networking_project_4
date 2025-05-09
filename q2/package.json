@@ -1,0 +1,11 @@
+{
+  "name": "forwarding",
+  "version": "1.0.0",
+  "main": "forwarding.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Michael Lemmler",
+  "license": "ISC",
+  "description": ""
+}
